@@ -1,0 +1,14 @@
+{
+  "name": "fenixbot",
+  "version": "1.0.0",
+  "description": "Bot de Gerenciamento da Superintendência",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5",
+    "firebase-admin": "^12.0.0"
+  }
+}
