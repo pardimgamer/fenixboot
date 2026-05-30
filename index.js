@@ -58,6 +58,14 @@ client.once('ready', () => {
     console.log(`✅ Agente Federal: Sistema Online | Direção Geral: Miguel Fernandes`);
 });
 
+// Adicione isto antes do client.login
+console.log("--- DEBUG DE CONEXÃO ---");
+console.log("Variável TOKEN existe?", process.env.TOKEN ? "Sim" : "Não");
+console.log("Tamanho do Token:", process.env.TOKEN ? process.env.TOKEN.length : 0);
+console.log("------------------------");
+
+client.login(process.env.TOKEN);
+
 // [RESTANTE DO SEU CÓDIGO PERMANECE IGUAL AQUI...]
 // (Certifique-se de colar o restante da sua lógica abaixo deste ponto)
 
