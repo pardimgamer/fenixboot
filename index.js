@@ -79,7 +79,14 @@ client.on('messageCreate', async (message) => {
     if (message.content === '!setup-painel') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
         const embed = new EmbedBuilder().setTitle("PAINEL DE FUNCIONAL").setDescription("Solicite sua funcional através do painel. Clique no botão abaixo.").setColor(0x2F3136).setThumbnail(CONFIG.LINK_LOGO);
-        const rowLinks = new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Dúvidas').setStyle(ButtonStyle.Link).setURL('https://discord.com'), new ButtonBuilder().setLabel('Corregedoria').setStyle(ButtonStyle.Link).setURL('https://discord.com'), new ButtonBuilder().setLabel('Recursos Humanos').setStyle(ButtonStyle.Link).setURL('https://discord.com'));
+        
+        // BOTÕES CONFIGURADOS CONFORME PEDIDO
+        const rowLinks = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('btn_duvidas').setLabel('Dúvidas').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setLabel('Sobre nós').setStyle(ButtonStyle.Link).setURL('https://discord.com'), // Mude os links aqui
+            new ButtonBuilder().setLabel('Fale-conosco').setStyle(ButtonStyle.Link).setURL('https://discord.com'), // Mude os links aqui
+            new ButtonBuilder().setLabel('ASCOM').setStyle(ButtonStyle.Link).setURL('https://discord.com') // Mude os links aqui
+        );
         const rowAcao = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('abrir_modal').setLabel('Pedir funcional').setStyle(ButtonStyle.Success).setEmoji('📝'));
         await message.channel.send({ embeds: [embed], components: [rowLinks, rowAcao] });
         message.delete().catch(() => {});
@@ -107,13 +114,22 @@ client.on('messageCreate', async (message) => {
 // --- INTERAÇÕES ---
 client.on('interactionCreate', async (interaction) => {
     try {
-        const isModalOpener = (interaction.isButton() && (interaction.customId === 'abrir_modal' || interaction.customId === 'abrir_modal_resultado'));
+        // Incluído 'btn_duvidas' aqui para não dar erro
+        const isModalOpener = (interaction.isButton() && (interaction.customId === 'abrir_modal' || interaction.customId === 'abrir_modal_resultado' || interaction.customId === 'btn_duvidas'));
         
         if ((interaction.isButton() || interaction.isStringSelectMenu()) && !isModalOpener) {
             await interaction.deferUpdate().catch(() => {});
         }
 
         // --- LÓGICA DE MODAIS ---
+        
+        // Modal Dúvidas
+        if (interaction.isButton() && interaction.customId === 'btn_duvidas') {
+            const modal = new ModalBuilder().setCustomId('modal_duvidas').setTitle('Central de Dúvidas');
+            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('txt_duvida').setLabel('Qual a sua dúvida?').setStyle(TextInputStyle.Paragraph).setRequired(true)));
+            return await interaction.showModal(modal);
+        }
+
         if (interaction.isButton() && interaction.customId === 'abrir_modal') {
              const modal = new ModalBuilder().setCustomId('modal_registro').setTitle('Registro de Funcional');
              modal.addComponents(
@@ -134,12 +150,25 @@ client.on('interactionCreate', async (interaction) => {
             return await interaction.showModal(modalRes);
         }
 
+        // --- SUBMITS ---
+        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === 'modal_duvidas') {
+            await interaction.reply({ content: '✅ Sua dúvida foi enviada.', ephemeral: true });
+        }
+
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === 'modal_registro') {
             const pass = interaction.fields.getTextInputValue('passaporte');
             const nome = interaction.fields.getTextInputValue('nome');
             const embed = new EmbedBuilder().setTitle("PF - Registro").setDescription(`👤 **Personagem:** ${nome}\n🆔 **Passaporte:** ${pass}\n\nSelecione a **Unidade**.`).setColor(0x2F3136);
             const menu = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`unidade_${pass}_${nome.replace(/\s/g, '-')}`).setPlaceholder('Selecione...').addOptions(Object.keys(CONFIG.UNIDADES).map(k => ({ label: k, value: k }))));
             await interaction.reply({ embeds: [embed], components: [menu], ephemeral: true });
+        }
+
+        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === 'modal_resultado_edital') {
+            const resToken = interaction.fields.getTextInputValue('token_candidato').toUpperCase();
+            const resNota = interaction.fields.getTextInputValue('nota_candidato');
+            const resStatus = interaction.fields.getTextInputValue('status_candidato').toUpperCase();
+            await db.collection('resultados').add({ token: resToken, nota: resNota, status: resStatus });
+            await interaction.reply({ content: `✅ Publicado: ${resToken}`, ephemeral: true });
         }
 
         // --- LÓGICA DE SELEÇÃO ---
