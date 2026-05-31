@@ -37,7 +37,7 @@ const CONFIG = {
         "CAOP": "1510481986509340732", "NEPOM": "1510481761551912990"
     },
     UNIDADES: {
-        "PF": "1510492325925617725",
+        "Polícia Federal": "1510492325925617725",
     }
 };
 
@@ -104,11 +104,9 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// --- INTERAÇÕES (BLINDADAS CONTRA ERROS) ---
+// --- INTERAÇÕES ---
 client.on('interactionCreate', async (interaction) => {
     try {
-        // AVISO PRÉVIO PARA BOTÕES/MENUS (EVITA "INTERAÇÃO FALHOU")
-        // Não fazemos defer nos botões que ABREM modais
         const isModalOpener = (interaction.isButton() && (interaction.customId === 'abrir_modal' || interaction.customId === 'abrir_modal_resultado'));
         
         if ((interaction.isButton() || interaction.isStringSelectMenu()) && !isModalOpener) {
@@ -144,14 +142,6 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ embeds: [embed], components: [menu], ephemeral: true });
         }
 
-        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === 'modal_resultado_edital') {
-            const resToken = interaction.fields.getTextInputValue('token_candidato').toUpperCase();
-            const resNota = interaction.fields.getTextInputValue('nota_candidato');
-            const resStatus = interaction.fields.getTextInputValue('status_candidato').toUpperCase();
-            await db.collection('resultados').add({ token: resToken, nota: resNota, status: resStatus });
-            await interaction.reply({ content: `✅ Publicado: ${resToken}`, ephemeral: true });
-        }
-
         // --- LÓGICA DE SELEÇÃO ---
         if (interaction.isStringSelectMenu() && interaction.customId.startsWith('unidade_')) {
             const [, pass, nome] = interaction.customId.split('_');
@@ -174,7 +164,7 @@ client.on('interactionCreate', async (interaction) => {
             const cargo = interaction.values[0];
             const canalAprov = interaction.guild.channels.cache.get(CONFIG.CANAL_APROVACAO);
             const embedStaff = new EmbedBuilder().setTitle("NOVA SOLICITAÇÃO").setColor(0xFFFF00).addFields({ name: "👤 Solicitante:", value: `${interaction.user}` }, { name: "📛 Nome:", value: nome.replace(/-/g, ' '), inline: true }, { name: "🆔 Passaporte:", value: pass, inline: true }, { name: "🏛️ Unidade:", value: unidade, inline: true }, { name: "🏢 Seção:", value: divisao, inline: true }, { name: "🎖️ Cargo:", value: cargo.toUpperCase(), inline: true });
-            const botoes = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`aprovar_${interaction.user.id}_${cargo}_${divisao}_${pass}_${nome}_${unidade}`).setLabel('Aprovar').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId(`reprovar_${interaction.user.id}`).setLabel('Reprovar').setStyle(ButtonStyle.Danger));
+            const botoes = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`aprovar_${interaction.user.id}_${cargo}_${divisao}_${pass}_${nome}_${unidade}`).setLabel('Aprovar').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId(`reprovar_${interaction.user.id}_${pass}_${nome}_${divisao}_${unidade}`).setLabel('Reprovar').setStyle(ButtonStyle.Danger));
             if (canalAprov) { await canalAprov.send({ embeds: [embedStaff], components: [botoes] }); await interaction.editReply({ content: "✅ Enviado!", embeds: [], components: [] }); }
         }
 
@@ -186,8 +176,30 @@ client.on('interactionCreate', async (interaction) => {
                 if (CONFIG.CARGOS[cargoKey]) await membro.roles.add(CONFIG.CARGOS[cargoKey]).catch(() => {});
                 if (CONFIG.DIVISOES[divKey]) await membro.roles.add(CONFIG.DIVISOES[divKey]).catch(() => {});
                 if (CONFIG.UNIDADES[uniKey]) await membro.roles.add(CONFIG.UNIDADES[uniKey]).catch(() => {});
-                await interaction.editReply({ content: `✅ **APROVADO POR:** ${interaction.user}`, components: [] });
             }
+            const logChannel = interaction.guild.channels.cache.get(CONFIG.CANAL_LOGS_FINAL);
+            if(logChannel) {
+                const logEmbed = new EmbedBuilder().setTitle("✅ FUNCIONAL APROVADA").setColor(0x00FF00).setDescription(`**Membro:** <@${userId}>\n**Aprovador:** ${interaction.user}\n**Data:** ${new Date().toLocaleString()}`);
+                await logChannel.send({embeds: [logEmbed]});
+            }
+            await interaction.update({ content: `✅ **APROVADO POR:** ${interaction.user}`, components: [] });
+        }
+
+        // --- REPROVAÇÃO ---
+        if (interaction.isButton() && interaction.customId.startsWith('reprovar_')) {
+            const modalRecusa = new ModalBuilder().setCustomId(`modal_recusa_${interaction.customId}`).setTitle('Motivo da Recusa');
+            modalRecusa.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('motivo').setLabel('Motivo da Recusa').setStyle(TextInputStyle.Paragraph).setRequired(true)));
+            await interaction.showModal(modalRecusa);
+        }
+
+        if (interaction.type === InteractionType.ModalSubmit && interaction.customId.startsWith('modal_recusa_')) {
+            const motivo = interaction.fields.getTextInputValue('motivo');
+            const logChannel = interaction.guild.channels.cache.get(CONFIG.CANAL_LOGS_FINAL);
+            if(logChannel) {
+                const logEmbed = new EmbedBuilder().setTitle("❌ FUNCIONAL RECUSADA").setColor(0xFF0000).setDescription(`**Recusador:** ${interaction.user}\n**Motivo:** ${motivo}\n**Data:** ${new Date().toLocaleString()}`);
+                await logChannel.send({embeds: [logEmbed]});
+            }
+            await interaction.update({ content: `❌ **RECUSADO POR:** ${interaction.user}\n**Motivo:** ${motivo}`, components: [] });
         }
     } catch (err) {
         console.error("ERRO CRÍTICO NA INTERAÇÃO:", err);
