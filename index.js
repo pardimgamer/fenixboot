@@ -25,7 +25,8 @@ const client = new Client({
 const CONFIG = {
     CANAL_APROVACAO: "1510465716065796196", 
     CANAL_LOGS_FINAL: "1510441424024506490",    
-    LINK_LOGO: "https://i.imgur.com/7DmRBAv.png", 
+    CANAL_DUVIDAS: "1510457831491502120", // ID DO CANAL DE DÚVIDAS ADICIONADO AQUI
+    LINK_LOGO: "https://i.imgur.com/wUKG9e9.png", 
     CARGO_VERIFICADO: "1510489553381884005", 
     CARGOS: {
         DiretorG: "1510477937311486283", DiretorEx: "1510478041896325180", CorregedorG: "1510478090399252520", Corregedor: "1510478160595255416", Delegado: "1510478399745818745", EscrivãoG: "1510483788755370164",Escrivão: "1510483790227574935", Perito: "1510483790856720434",
@@ -79,13 +80,11 @@ client.on('messageCreate', async (message) => {
     if (message.content === '!setup-painel') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
         const embed = new EmbedBuilder().setTitle("PAINEL DE FUNCIONAL").setDescription("Solicite sua funcional através do painel. Clique no botão abaixo.").setColor(0x2F3136).setThumbnail(CONFIG.LINK_LOGO);
-        
-        // BOTÕES CONFIGURADOS CONFORME PEDIDO
         const rowLinks = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('btn_duvidas').setLabel('Dúvidas').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setLabel('Sobre nós').setStyle(ButtonStyle.Link).setURL('https://discord.com'), // Mude os links aqui
-            new ButtonBuilder().setLabel('Fale-conosco').setStyle(ButtonStyle.Link).setURL('https://discord.com'), // Mude os links aqui
-            new ButtonBuilder().setLabel('ASCOM').setStyle(ButtonStyle.Link).setURL('https://discord.com') // Mude os links aqui
+            new ButtonBuilder().setLabel('Sobre nós').setStyle(ButtonStyle.Link).setURL('https://discord.com/channels/1509345772146004058/1509350392377507870'), 
+            new ButtonBuilder().setLabel('Fale-conosco').setStyle(ButtonStyle.Link).setURL('https://discord.com/channels/1509345772146004058/1509348730959167609'), 
+            new ButtonBuilder().setLabel('ASCOM').setStyle(ButtonStyle.Link).setURL('https://discord.com/channels/1509345772146004058/1509353458845614100')
         );
         const rowAcao = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('abrir_modal').setLabel('Pedir funcional').setStyle(ButtonStyle.Success).setEmoji('📝'));
         await message.channel.send({ embeds: [embed], components: [rowLinks, rowAcao] });
@@ -114,7 +113,6 @@ client.on('messageCreate', async (message) => {
 // --- INTERAÇÕES ---
 client.on('interactionCreate', async (interaction) => {
     try {
-        // Incluído 'btn_duvidas' aqui para não dar erro
         const isModalOpener = (interaction.isButton() && (interaction.customId === 'abrir_modal' || interaction.customId === 'abrir_modal_resultado' || interaction.customId === 'btn_duvidas'));
         
         if ((interaction.isButton() || interaction.isStringSelectMenu()) && !isModalOpener) {
@@ -122,8 +120,6 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         // --- LÓGICA DE MODAIS ---
-        
-        // Modal Dúvidas
         if (interaction.isButton() && interaction.customId === 'btn_duvidas') {
             const modal = new ModalBuilder().setCustomId('modal_duvidas').setTitle('Central de Dúvidas');
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('txt_duvida').setLabel('Qual a sua dúvida?').setStyle(TextInputStyle.Paragraph).setRequired(true)));
@@ -152,7 +148,13 @@ client.on('interactionCreate', async (interaction) => {
 
         // --- SUBMITS ---
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === 'modal_duvidas') {
-            await interaction.reply({ content: '✅ Sua dúvida foi enviada.', ephemeral: true });
+            const duvida = interaction.fields.getTextInputValue('txt_duvida');
+            const canalDuvidas = interaction.guild.channels.cache.get(CONFIG.CANAL_DUVIDAS);
+            if (canalDuvidas) {
+                const embedDuvida = new EmbedBuilder().setTitle("❓ Nova Dúvida").setColor(0xFFFF00).addFields({ name: "Usuário", value: `${interaction.user}` }, { name: "Dúvida", value: duvida });
+                await canalDuvidas.send({ embeds: [embedDuvida] });
+            }
+            await interaction.reply({ content: '✅ Dúvida enviada.', ephemeral: true });
         }
 
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === 'modal_registro') {
