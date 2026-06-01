@@ -1,228 +1,417 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, InteractionType, StringSelectMenuBuilder, PermissionFlagsBits } = require('discord.js');
+const { 
+    Client, 
+    GatewayIntentBits, 
+    ActionRowBuilder, 
+    ButtonBuilder, 
+    ButtonStyle, 
+    EmbedBuilder, 
+    StringSelectMenuBuilder, 
+    UserSelectMenuBuilder,
+    ModalBuilder, 
+    TextInputBuilder, 
+    TextInputStyle, 
+    InteractionType 
+} = require('discord.js');
 require('dotenv').config();
 
-// ================== MOTOR DO FIREBASE ==================
-const admin = require('firebase-admin');
-const serviceAccount = require("./firebase-key.json"); 
-
-admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-});
-
-const db = admin.firestore();
-
-// ================== CONFIGURAÇÃO DO CLIENT ==================
-const client = new Client({ 
+const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds, 
-        GatewayIntentBits.GuildMessages, 
-        GatewayIntentBits.MessageContent, 
-        GatewayIntentBits.GuildMembers, 
-        GatewayIntentBits.GuildModeration
-    ] 
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ]
 });
 
+// ==================== CONFIGURAÇÕES DO SERVIDOR ====================
 const CONFIG = {
-    CANAL_APROVACAO: "1510465716065796196", 
-    CANAL_LOGS_FINAL: "1510441424024506490",    
-    LINK_LOGO: "https://i.imgur.com/wUKG9e9.png.png", 
-    CARGO_VERIFICADO: "1510489553381884005", 
+    CANAL_PAINEL: "1509355419066306602",
+    CANAL_APROVACAO: "1510465716065796196",
+    CANAL_LOGS: "1510441424024506490",
+
+    // 🔴 INSIRA OS IDS DOS SEUS CANAIS AQUI:
+    CANAL_SOBRE_NOS: "1509350392377507870",  
+    CANAL_FALE_CONOSCO: "1509348730959167609",
+    CANAL_ASCOM: "1509353458845614100",
+
+    // URL Direta Corrigida da Logo da Polícia Federal (Sem quebras)
+    LOGO_URL: "https://i.imgur.com/wUKG9e9.png", 
+
+    // CARGO GERAL DA POLÍCIA FEDERAL (Entregue a todos os aprovados)
+    CARGO_POLICIA_FEDERAL: "1510482823289503975", 
+
+    // Mapeamento de IDs de Cargos para atribuição automática
     CARGOS: {
-        DiretorG: "1510477937311486283", DiretorEx: "1510478041896325180", CorregedorG: "1510478090399252520", Corregedor: "1510478160595255416", Delegado: "1510478399745818745", EscrivãoG: "1510483788755370164",Escrivão: "1510483790227574935", Perito: "1510483790856720434",
-        ClasseEspecial: "1510483791590850571", Classe1: "1510484725125615616", Classe2: "1510484725720940687",
-        Aluno: "1510484726534639616"
+        "diretor_geral": "1510477937311486283",
+        "diretor_executivo": "1510478041896325180",
+        "corregedor_geral": "1510478160595255416",
+        "delegado_geral": "1510478337925972018",
+        "delegado": "1510478399745818745",
+        "coordenador_operacional": "1510478472466927686",
+        "escrivao_geral": "1510483788755370164",
+        "escrivao": "1510483790227574935",
+        "investigador": "1510806328753393745",
+        "chefe_divisao": "1510483787946135703",
+        "chefe_nucleo": "1510483788260704286",
+        "agente_1": "1510484725125615616",
+        "agente_2": "1510484725720940687",
+        "classe_especial": "1510483791590850571",        
+        "aluno": "1510484726534639616"
     },
-    DIVISOES: {
-        "DPF": "1510482823289503975", "COT": "1510481761040204007", "GPI": "1510481749577170964",
-        "CAOP": "1510481986509340732", "NEPOM": "1510481761551912990"
-    },
+
+    // Mapeamento de IDs das Unidades
     UNIDADES: {
-        "Polícia Federal": "1510492325925617725",
+        "gpi": "1510481749577170964",
+        "cot": "1510481761040204007",
+        "caop": "1510481986509340732",
+        "nepom": "1510481761551912990",
+        "dpf": "1510482823289503975"
     }
 };
 
-client.once('ready', () => {
-    console.log(`✅ Agente Federal: Sistema Online | Direção Geral: Miguel Fernandes`);
-});
+const cacheFormulario = new Map();
 
-// --- MONITORAMENTO DE EXPULSÃO ---
-client.on('guildMemberUpdate', async (oldMember, newMember) => {
-    const tinhaCargo = oldMember.roles.cache.has(CONFIG.CARGO_VERIFICADO);
-    const temCargoAgora = newMember.roles.cache.has(CONFIG.CARGO_VERIFICADO);
+function getSPTimestamp() {
+    return new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+}
 
-    if (tinhaCargo && !temCargoAgora) {
-        try {
-            const embedExpulso = new EmbedBuilder()
-                .setTitle("⚠️ EXONERADO")
-                .setDescription("Você foi exonerado da Policia Federal, agradecemos seu tempo de serviço.")
-                .setColor(0xFF0000);
-            
-            await newMember.send({ embeds: [embedExpulso] }).catch(() => {});
-            await newMember.kick('Cargo Verificado Removido (Exoneração/Desligamento)');
-
-            const canalLog = newMember.guild.channels.cache.get(CONFIG.CANAL_LOGS_FINAL);
-            if (canalLog) {
-                const embedLogExp = new EmbedBuilder()
-                    .setTitle("👢 MEMBRO EXPULSO")
-                    .setColor(0xFF0000)
-                    .setThumbnail(newMember.user.displayAvatarURL())
-                    .setDescription(`O membro **${newMember.user.tag}** foi expulso automaticamente após a remoção do cargo <@&${CONFIG.CARGO_VERIFICADO}>.`)
-                    .setTimestamp();
-                await canalLog.send({ embeds: [embedLogExp] });
-            }
-        } catch (e) { console.error("Erro expulsão:", e.message); }
-    }
-});
-
-// --- COMANDOS DE MENSAGEM ---
-client.on('messageCreate', async (message) => {
-    if (message.content === '!setup-painel') {
-        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
-        const embed = new EmbedBuilder().setTitle("PAINEL DE FUNCIONAL").setDescription("Solicite sua funcional através do painel. Clique no botão abaixo.").setColor(0x2F3136).setThumbnail(CONFIG.LINK_LOGO);
-        
-        // BOTÕES COM LINKS INTERNOS DE CANAL (SUBSTITUA PELOS IDS REAIS)
-        const rowLinks = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setLabel('Sobre nós').setStyle(ButtonStyle.Link).setURL('https://discord.com/channels/1509345772146004058/1509350392377507870'), 
-            new ButtonBuilder().setLabel('Fale-conosco').setStyle(ButtonStyle.Link).setURL('https://discord.com/channels/1509345772146004058/1509348730959167609'), 
-            new ButtonBuilder().setLabel('ASCOM').setStyle(ButtonStyle.Link).setURL('https://discord.com/channels/1509345772146004058/1509353458845614100')
-        );
-        const rowAcao = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('abrir_modal').setLabel('Pedir funcional').setStyle(ButtonStyle.Success).setEmoji('📝'));
-        await message.channel.send({ embeds: [embed], components: [rowLinks, rowAcao] });
-        message.delete().catch(() => {});
-    }
-
-    if (message.content === '!setup-resultado') {
-        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
-        const embedResult = new EmbedBuilder().setTitle("PAINEL DE RESULTADOS").setDescription("Clique abaixo para postar resultado.").setColor(0x00AAFF).setThumbnail(CONFIG.LINK_LOGO);
-        const rowResult = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('abrir_modal_resultado').setLabel('Postar Resultado').setStyle(ButtonStyle.Primary).setEmoji('📊'));
-        await message.channel.send({ embeds: [embedResult], components: [rowResult] });
-        message.delete().catch(() => {});
-    }
-
-    if (message.content.startsWith('!publicar')) {
-        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
-        const partes = message.content.split('|');
-        if (partes.length < 3) return message.reply("⚠️ Use: !publicar Titulo | Resumo | Texto");
-        try {
-            await db.collection('diario').add({ titulo: partes[0].replace('!publicar', '').trim(), resumo: partes[1].trim(), texto: partes[2].trim(), data: new Date().toLocaleDateString('pt-BR'), secao: "1" });
-            message.reply("✅ Publicado!");
-        } catch (e) { message.reply("❌ Erro Firebase: " + e.message); }
-    }
-});
-
-// --- INTERAÇÕES ---
-client.on('interactionCreate', async (interaction) => {
+client.once('ready', async () => {
+    console.log(`🚀 Bot Fenix online como: ${client.user.tag}`);
     try {
-        const isModalOpener = (interaction.isButton() && (interaction.customId === 'abrir_modal' || interaction.customId === 'abrir_modal_resultado' || interaction.customId === 'btn_duvidas'));
-        
-        if ((interaction.isButton() || interaction.isStringSelectMenu()) && !isModalOpener) {
-            await interaction.deferUpdate().catch(() => {});
+        const canal = await client.channels.fetch(CONFIG.CANAL_PAINEL);
+        if (canal) {
+            const mensagens = await canal.messages.fetch({ limit: 10 });
+            const botEncontrouPainel = mensagens.some(msg => msg.author.id === client.user.id && msg.embeds.length > 0);
+            if (!botEncontrouPainel) {
+                console.log("📺 Painel não encontrado no canal. Gerando um novo automaticamente...");
+                await enviarPainel(canal);
+            }
         }
+    } catch (error) {
+        console.error("❌ Erro ao tentar enviar o painel automaticamente:", error);
+    }
+});
 
+client.on('messageCreate', async (message) => {
+    if (message.author.bot) return;
+    if (message.content === '!painel' && message.channel.id === CONFIG.CANAL_PAINEL) {
+        await message.delete().catch(() => null);
+        await enviarPainel(message.channel);
+    }
+});
 
-        if (interaction.isButton() && interaction.customId === 'abrir_modal') {
-             const modal = new ModalBuilder().setCustomId('modal_registro').setTitle('Registro de Funcional');
-             modal.addComponents(
-                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('passaporte').setLabel("Passaporte (ID)").setStyle(TextInputStyle.Short).setRequired(true)),
-                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('nome').setLabel("Nome e Sobrenome").setStyle(TextInputStyle.Short).setRequired(true)),
-                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('idade').setLabel("Idade").setStyle(TextInputStyle.Short).setRequired(true))
-             );
-             return await interaction.showModal(modal);
+// Envia o Painel exatamente com o mesmo layout estético de botões abaixo do Embed
+async function enviarPainel(canal) {
+    const embed = new EmbedBuilder()
+        .setTitle("PAINEL DE FUNCIONAL")
+        .setDescription("Solicite sua funcional através do painel. Clique no botão abaixo.")
+        .setColor("#101114")
+        .setThumbnail(CONFIG.LOGO_URL);
+
+    // Linha com os 3 botões estilizados secundários (Cinzas) apontando para os canais internos
+    const rowCanaisInternos = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('btn_sobre_nos').setLabel('Sobre nós').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('btn_fale_conosco').setLabel('Fale conosco').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('btn_ascom').setLabel('ASCOM').setStyle(ButtonStyle.Secondary)
+    );
+
+    const rowBotaoPrincipal = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('pedir_funcional').setLabel('📝 Pedir funcional').setStyle(ButtonStyle.Success)
+    );
+
+    await canal.send({ embeds: [embed], components: [rowCanaisInternos, rowBotaoPrincipal] });
+}
+
+// ==================== INTERAÇÕES DO FORMULÁRIO E BOTÕES ====================
+client.on('interactionCreate', async (interaction) => {
+    const userId = interaction.user.id;
+
+    // Redirecionamentos dos botões internos por ID de Canal
+    if (interaction.isButton()) {
+        if (interaction.customId === 'btn_sobre_nos') {
+            return await interaction.reply({ content: `➡️ Acesse o canal clicando aqui: <#${CONFIG.CANAL_SOBRE_NOS}>`, ephemeral: true }).catch(() => null);
         }
+        if (interaction.customId === 'btn_fale_conosco') {
+            return await interaction.reply({ content: `➡️ Acesse o canal clicando aqui: <#${CONFIG.CANAL_FALE_CONOSCO}>`, ephemeral: true }).catch(() => null);
+        }
+        if (interaction.customId === 'btn_ascom') {
+            return await interaction.reply({ content: `➡️ Acesse o canal clicando aqui: <#${CONFIG.CANAL_ASCOM}>`, ephemeral: true }).catch(() => null);
+        }
+    }
 
-        if (interaction.isButton() && interaction.customId === 'abrir_modal_resultado') {
-            const modalRes = new ModalBuilder().setCustomId('modal_resultado_edital').setTitle('Postar Resultado');
-            modalRes.addComponents(
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('token_candidato').setLabel("Token").setStyle(TextInputStyle.Short).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('nota_candidato').setLabel("Nota").setStyle(TextInputStyle.Short).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('status_candidato').setLabel("Status").setStyle(TextInputStyle.Short).setRequired(true))
+    // Etapa 1: Abrir o Modal Limpo sem ID duplicado
+    if (interaction.isButton() && interaction.customId === 'pedir_funcional') {
+        if (interaction.replied || interaction.deferred) return;
+        try {
+            const modal = new ModalBuilder()
+                .setCustomId('modal_dados_funcional')
+                .setTitle('Registro de Funcional');
+
+            const inputNome = new TextInputBuilder()
+                .setCustomId('txt_nome')
+                .setLabel('Nome e Sobrenome *')
+                .setPlaceholder('Exemplo: Miguel Fernandes')
+                .setRequired(true)
+                .setStyle(TextInputStyle.Short);
+
+            const inputPassaporte = new TextInputBuilder()
+                .setCustomId('txt_passaporte')
+                .setLabel('Passaporte (Apenas Números) *')
+                .setPlaceholder('Exemplo: 710')
+                .setRequired(true)
+                .setStyle(TextInputStyle.Short);
+
+            const inputIdade = new TextInputBuilder()
+                .setCustomId('txt_idade')
+                .setLabel('Idade *')
+                .setRequired(true)
+                .setStyle(TextInputStyle.Short);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(inputNome),
+                new ActionRowBuilder().addComponents(inputPassaporte),
+                new ActionRowBuilder().addComponents(inputIdade)
             );
-            return await interaction.showModal(modalRes);
+
+            await interaction.showModal(modal);
+            return;
+        } catch (err) {
+            console.error("⚠️ Erro controlado ao tentar exibir o modal:", err.message);
+            return;
+        }
+    }
+
+    // Etapa 2: Receber o Modal -> Mostrar Select de Cargos
+    if (interaction.type === InteractionType.ModalSubmit && interaction.customId === 'modal_dados_funcional') {
+        const nome = interaction.fields.getTextInputValue('txt_nome');
+        const passaporte = interaction.fields.getTextInputValue('txt_passaporte');
+        const idade = interaction.fields.getTextInputValue('txt_idade');
+
+        cacheFormulario.set(userId, { passaporte, nome, idade });
+
+        const menuCargos = new StringSelectMenuBuilder()
+            .setCustomId('select_cargo')
+            .setPlaceholder('Selecione o cargo requisitado')
+            .addOptions([
+                { label: 'Diretor Geral', value: 'diretor_geral' },
+                { label: 'Diretor Executivo', value: 'diretor_executivo' },
+                { label: 'Delegado Geral', value: 'delegado_geral' },
+                { label: 'Delegado', value: 'delegado' },
+                { label: 'Coordenador Operacional', value: 'coordenador_operacional' },
+                { label: 'Escrivão Geral', value: 'escrivao_geral' },
+                { label: 'Escrivão', value: 'escrivao' },
+                { label: 'Investigador', value: 'investigador' },
+                { label: 'Chefe de Divisão', value: 'chefe_divisao' },
+                { label: 'Chefe de Núcleo', value: 'chefe_nucleo' },
+                { label: 'Agente de 1º Classe', value: 'agente_1' },
+                { label: 'Agente de 2º Classe', value: 'agente_2' },
+                { label: 'Agente Classe Especial', value: 'classe_especial' },
+                { label: 'Aluno ANP', value: 'aluno' }
+            ]);
+
+        const row = new ActionRowBuilder().addComponents(menuCargos);
+        return await interaction.reply({ content: '➡️ Selecione o seu cargo abaixo:', components: [row], ephemeral: true }).catch(() => null);
+    }
+
+    // Etapa 3: Receber Cargo -> Mostrar Select de Guarnições/Unidades
+    if (interaction.isStringSelectMenu() && interaction.customId === 'select_cargo') {
+        const dados = cacheFormulario.get(userId);
+        if (!dados) return interaction.reply({ content: "Sessão expirada. Comece novamente.", ephemeral: true }).catch(() => null);
+
+        dados.cargoKey = interaction.values[0];
+        cacheFormulario.set(userId, dados);
+
+        const menuUnidades = new StringSelectMenuBuilder()
+            .setCustomId('select_unidade')
+            .setPlaceholder('Selecione a guarnição solicitada')
+            .addOptions([
+                { label: 'Grupo de Pronta Intervenção (GPI)', value: 'gpi' },
+                { label: 'Equipe Alpha (COT-A)', value: 'cot' },
+                { label: 'CAOP', value: 'caop' },
+                { label: 'NEPOM', value: 'nepom' },
+                { label: 'Unidade Operacional Regional - DPF', value: 'dpf' }
+            ]);
+
+        const row = new ActionRowBuilder().addComponents(menuUnidades);
+        return await interaction.update({ content: '➡️ Selecione a sua Guarnição/Unidade:', components: [row], ephemeral: true }).catch(() => null);
+    }
+
+    // Etapa 4: Receber Unidade -> Mostrar UserSelectMenu
+    if (interaction.isStringSelectMenu() && interaction.customId === 'select_unidade') {
+        const dados = cacheFormulario.get(userId);
+        if (!dados) return interaction.reply({ content: "Sessão expirada.", ephemeral: true }).catch(() => null);
+
+        dados.unidadeKey = interaction.values[0];
+        cacheFormulario.set(userId, dados);
+
+        const menuMembros = new UserSelectMenuBuilder()
+            .setCustomId('select_convidado')
+            .setPlaceholder('Selecione quem te convidou');
+
+        const row = new ActionRowBuilder().addComponents(menuMembros);
+        return await interaction.update({ content: '➡️ Selecione o membro que convidou você:', components: [row], ephemeral: true }).catch(() => null);
+    }
+
+    // Finalização do Envio: Monta o Embed no Canal de Aprovação
+    if (interaction.isUserSelectMenu() && interaction.customId === 'select_convidado') {
+        const dados = cacheFormulario.get(userId);
+        if (!dados) return interaction.reply({ content: "Sessão expirada.", ephemeral: true }).catch(() => null);
+
+        dados.convidadoId = interaction.values[0];
+
+        const labelCargo = interaction.guild.roles.cache.get(CONFIG.CARGOS[dados.cargoKey])?.name || dados.cargoKey.toUpperCase();
+        const labelUnidade = interaction.guild.roles.cache.get(CONFIG.UNIDADES[dados.unidadeKey])?.name || dados.unidadeKey.toUpperCase();
+
+        const canalAprovacao = interaction.guild.channels.cache.get(CONFIG.CANAL_APROVACAO);
+        if (canalAprovacao) {
+            const embedStaff = new EmbedBuilder()
+                .setTitle(`Funcional solicitada - ${interaction.user.username}`)
+                .setThumbnail(CONFIG.LOGO_URL)
+                .setColor("#2b2d31")
+                .addFields(
+                    { name: 'Personagem:', value: `\`\`\`${dados.nome}\`\`\``, inline: true },
+                    { name: 'Idade:', value: `\`\`\`${dados.idade} anos\`\`\``, inline: true },
+                    { name: 'Passaporte:', value: `\`\`\`${dados.passaporte}\`\`\``, inline: true },
+                    { name: 'Onde será direcionado:', value: `\`\`\`Polícia Federal\`\`\`` },
+                    { name: 'Guarnição solicitada:', value: `\`\`\`${labelUnidade}\`\`\`` },
+                    { name: 'Cargo requisitado:', value: `\`\`\`${labelCargo}\`\`\`` },
+                    { name: 'Convidado por:', value: `<@${dados.convidadoId}>`, inline: true },
+                    { name: 'Adaptação:', value: `\`\`\` 📋 Aguardando Análise \`\`\``, inline: true }
+                );
+
+            const botoesStaff = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`aprovar_${userId}`).setLabel('Aceitar').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`reprovar_${userId}`).setLabel('Recusar').setStyle(ButtonStyle.Danger)
+            );
+
+            await canalAprovacao.send({ embeds: [embedStaff], components: [botoesStaff] }).catch(() => null);
         }
 
-        // --- SUBMITS ---
-        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === 'modal_duvidas') {
-            await interaction.reply({ content: '✅ Dúvida enviada.', ephemeral: true });
-        }
+        cacheFormulario.delete(userId);
+        return await interaction.update({ content: '✅ Sua funcional foi enviada com sucesso para avaliação dos diretores!', components: [], ephemeral: true }).catch(() => null);
+    }
 
-        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === 'modal_registro') {
-            const pass = interaction.fields.getTextInputValue('passaporte');
-            const nome = interaction.fields.getTextInputValue('nome');
-            const embed = new EmbedBuilder().setTitle("PF - Registro").setDescription(`👤 **Personagem:** ${nome}\n🆔 **Passaporte:** ${pass}\n\nSelecione a **Unidade**.`).setColor(0x2F3136);
-            const menu = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`unidade_${pass}_${nome.replace(/\s/g, '-')}`).setPlaceholder('Selecione...').addOptions(Object.keys(CONFIG.UNIDADES).map(k => ({ label: k, value: k }))));
-            await interaction.reply({ embeds: [embed], components: [menu], ephemeral: true });
-        }
+    // ==================== SISTEMA DE ACEITAR / RECUSAR ====================
 
-        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === 'modal_resultado_edital') {
-            const resToken = interaction.fields.getTextInputValue('token_candidato').toUpperCase();
-            const resNota = interaction.fields.getTextInputValue('nota_candidato');
-            const resStatus = interaction.fields.getTextInputValue('status_candidato').toUpperCase();
-            await db.collection('resultados').add({ token: resToken, nota: resNota, status: resStatus });
-            await interaction.reply({ content: `✅ Publicado: ${resToken}`, ephemeral: true });
-        }
+    // Ação: Botão Aceitar 
+    if (interaction.isButton() && interaction.customId.startsWith('aprovar_')) {
+        const alvoId = interaction.customId.split('_')[1];
+        const membroAlvo = await interaction.guild.members.fetch(alvoId).catch(() => null);
+        const embedAntigo = interaction.message.embeds[0];
 
-        // --- LÓGICA DE SELEÇÃO ---
-        if (interaction.isStringSelectMenu() && interaction.customId.startsWith('unidade_')) {
-            const [, pass, nome] = interaction.customId.split('_');
-            const unidade = interaction.values[0];
-            const embed = new EmbedBuilder().setTitle("PF - Registro").setDescription(`**Unidade:** ${unidade}\n\nSelecione a **seção**.`).setColor(0x2F3136);
-            const menu = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`divisao_${pass}_${nome}_${unidade}`).setPlaceholder('Selecione...').addOptions([...Object.keys(CONFIG.DIVISOES).map(k => ({ label: k, value: k })), { label: 'Nenhum', value: 'Nenhum' }]));
-            await interaction.editReply({ embeds: [embed], components: [menu] });
-        }
+        const embedAceito = EmbedBuilder.from(embedAntigo)
+            .setColor("#248046")
+            .addFields({ name: 'FUNCIONAL ACEITA:', value: `• A funcional foi aceita por: ${interaction.user}` });
 
-        if (interaction.isStringSelectMenu() && interaction.customId.startsWith('divisao_')) {
-            const [, pass, nome, unidade] = interaction.customId.split('_');
-            const divisao = interaction.values[0];
-            const embed = new EmbedBuilder().setTitle("PF - Registro").setDescription(`**Unidade:** ${unidade}\n**Seção:** ${divisao}\n\nSelecione o **cargo**.`).setColor(0x2F3136);
-            const menu = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`cargo_${pass}_${nome}_${divisao}_${unidade}`).setPlaceholder('Selecione...').addOptions([...Object.keys(CONFIG.CARGOS).map(k => ({ label: k, value: k })), { label: 'Nenhum', value: 'Nenhum' }]));
-            await interaction.editReply({ embeds: [embed], components: [menu] });
-        }
+        const botaoDesabilitado = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('func_aceita').setLabel('A funcional foi aceita').setStyle(ButtonStyle.Success).setDisabled(true)
+        );
 
-        if (interaction.isStringSelectMenu() && interaction.customId.startsWith('cargo_')) {
-            const [, pass, nome, divisao, unidade] = interaction.customId.split('_');
-            const cargo = interaction.values[0];
-            const canalAprov = interaction.guild.channels.cache.get(CONFIG.CANAL_APROVACAO);
-            const embedStaff = new EmbedBuilder().setTitle("NOVA SOLICITAÇÃO").setColor(0xFFFF00).addFields({ name: "👤 Solicitante:", value: `${interaction.user}` }, { name: "📛 Nome:", value: nome.replace(/-/g, ' '), inline: true }, { name: "🆔 Passaporte:", value: pass, inline: true }, { name: "🏛️ Unidade:", value: unidade, inline: true }, { name: "🏢 Seção:", value: divisao, inline: true }, { name: "🎖️ Cargo:", value: cargo.toUpperCase(), inline: true });
-            const botoes = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`aprovar_${interaction.user.id}_${cargo}_${divisao}_${pass}_${nome}_${unidade}`).setLabel('Aprovar').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId(`reprovar_${interaction.user.id}_${pass}_${nome}_${divisao}_${unidade}`).setLabel('Reprovar').setStyle(ButtonStyle.Danger));
-            if (canalAprov) { await canalAprov.send({ embeds: [embedStaff], components: [botoes] }); await interaction.editReply({ content: "✅ Enviado!", embeds: [], components: [] }); }
-        }
+        await interaction.update({ embeds: [embedAceito], components: [botaoDesabilitado] }).catch(() => null);
 
-        // --- APROVAÇÃO ---
-        if (interaction.isButton() && interaction.customId.startsWith('aprovar_')) {
-            const [, userId, cargoKey, divKey, pass, nomeFormatado, uniKey] = interaction.customId.split('_');
-            const membro = await interaction.guild.members.fetch(userId).catch(() => null);
-            if (membro) {
-                if (CONFIG.CARGOS[cargoKey]) await membro.roles.add(CONFIG.CARGOS[cargoKey]).catch(() => {});
-                if (CONFIG.DIVISOES[divKey]) await membro.roles.add(CONFIG.DIVISOES[divKey]).catch(() => {});
-                if (CONFIG.UNIDADES[uniKey]) await membro.roles.add(CONFIG.UNIDADES[uniKey]).catch(() => {});
+        if (membroAlvo) {
+            const campoNome = embedAntigo.fields.find(f => f.name === 'Personagem:')?.value.replace(/```/g, '').trim() || '';
+            const campoPassaporte = embedAntigo.fields.find(f => f.name === 'Passaporte:')?.value.replace(/```/g, '').trim() || '';
+            const campoCargo = embedAntigo.fields.find(f => f.name === 'Cargo requisitado:')?.value.toLowerCase().replace(/```/g, '').trim() || '';
+            const campoUnidade = embedAntigo.fields.find(f => f.name === 'Guarnição solicitada:')?.value.toLowerCase().replace(/```/g, '').trim() || '';
+
+            // Modifica o Nickname para o padrão exato: Nome Sobrenome - Passaporte
+            if (campoNome && campoPassaporte) {
+                const novoNickFormatado = `${campoNome} - ${campoPassaporte}`;
+                await membroAlvo.setNickname(novoNickFormatado).catch(err => {
+                    console.error(`⚠️ Sem permissão hierárquica para alterar o nome de ${membroAlvo.user.tag}:`, err.message);
+                });
             }
-            const logChannel = interaction.guild.channels.cache.get(CONFIG.CANAL_LOGS_FINAL);
-            if(logChannel) {
-                const logEmbed = new EmbedBuilder().setTitle("✅ FUNCIONAL APROVADA").setColor(0x00FF00).setDescription(`**Membro:** <@${userId}>\n**Aprovador:** ${interaction.user}\n**Data:** ${new Date().toLocaleString()}`);
-                await logChannel.send({embeds: [logEmbed]});
+
+            // Entrega os cargos configurados de forma integrada
+            await membroAlvo.roles.add(CONFIG.CARGO_POLICIA_FEDERAL).catch(() => null);
+
+            for (const [key, id] of Object.entries(CONFIG.CARGOS)) {
+                const nomeFormatadoCargo = key.replace(/_/g, ' ');
+                if (campoCargo.includes(nomeFormatadoCargo) || nomeFormatadoCargo.includes(campoCargo)) {
+                    await membroAlvo.roles.add(id).catch(() => null);
+                }
             }
-            await interaction.update({ content: `✅ **APROVADO POR:** ${interaction.user}`, components: [] });
+
+            for (const [key, id] of Object.entries(CONFIG.UNIDADES)) {
+                if (campoUnidade.includes(key) || key.includes(campoUnidade)) {
+                    await membroAlvo.roles.add(id).catch(() => null);
+                }
+            }
         }
 
-        // --- REPROVAÇÃO ---
-        if (interaction.isButton() && interaction.customId.startsWith('reprovar_')) {
-            const modalRecusa = new ModalBuilder().setCustomId(`modal_recusa_${interaction.customId}`).setTitle('Motivo da Recusa');
-            modalRecusa.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('motivo').setLabel('Motivo da Recusa').setStyle(TextInputStyle.Paragraph).setRequired(true)));
-            await interaction.showModal(modalRecusa);
+        const canalLogs = interaction.guild.channels.cache.get(CONFIG.CANAL_LOGS);
+        if (canalLogs) {
+            const logEmbed = new EmbedBuilder()
+                .setTitle("🟢 Log - Funcional Aprovada")
+                .setColor("#248046")
+                .addFields(
+                    { name: "Membro:", value: `<@${alvoId}> (\`${alvoId}\`)` },
+                    { name: "Aprovado Por:", value: `${interaction.user}` },
+                    { name: "Data/Hora (São Paulo):", value: `\`${getSPTimestamp()}\`` }
+                );
+            await canalLogs.send({ embeds: [logEmbed] }).catch(() => null);
         }
+    }
 
-        if (interaction.type === InteractionType.ModalSubmit && interaction.customId.startsWith('modal_recusa_')) {
-            const motivo = interaction.fields.getTextInputValue('motivo');
-            const logChannel = interaction.guild.channels.cache.get(CONFIG.CANAL_LOGS_FINAL);
-            if(logChannel) {
-                const logEmbed = new EmbedBuilder().setTitle("❌ FUNCIONAL RECUSADA").setColor(0xFF0000).setDescription(`**Recusador:** ${interaction.user}\n**Motivo:** ${motivo}\n**Data:** ${new Date().toLocaleString()}`);
-                await logChannel.send({embeds: [logEmbed]});
-            }
-            // AQUI OS BOTÕES SOMEM AO RECUSAR
-            await interaction.update({ content: `❌ **RECUSADO POR:** ${interaction.user}\n**Motivo:** ${motivo}`, components: [] });
+    // Ação: Botão Recusar
+    if (interaction.isButton() && interaction.customId.startsWith('reprovar_')) {
+        if (interaction.replied || interaction.deferred) return;
+        try {
+            const alvoId = interaction.customId.split('_')[1];
+
+            const modalMotivo = new ModalBuilder()
+                .setCustomId(`modal_recusa_${alvoId}`)
+                .setTitle('Motivo da Rejeição');
+
+            const inputMotivo = new TextInputBuilder()
+                .setCustomId('txt_motivo_recusa')
+                .setLabel('Escreva o motivo da recusa:')
+                .setRequired(true)
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('Exemplo: Informações inválidas.');
+
+            modalMotivo.addComponents(new ActionRowBuilder().addComponents(inputMotivo));
+            await interaction.showModal(modalMotivo);
+            return;
+        } catch (err) {
+            console.error("⚠️ Erro controlado ao abrir modal de recusa:", err.message);
+            return;
         }
-    } catch (err) {
-        console.error("ERRO CRÍTICO NA INTERAÇÃO:", err);
+    }
+
+    // Envio do Modal de Recusa
+    if (interaction.type === InteractionType.ModalSubmit && interaction.customId.startsWith('modal_recusa_')) {
+        const alvoId = interaction.customId.split('_')[2];
+        const motivo = interaction.fields.getTextInputValue('txt_motivo_recusa');
+        const embedAntigo = interaction.message.embeds[0];
+
+        const embedRecusado = EmbedBuilder.from(embedAntigo)
+            .setColor("#da373c")
+            .addFields(
+                { name: 'FUNCIONAL NEGADA:', value: `• A funcional foi negada por: ${interaction.user}` },
+                { name: 'Motivo:', value: `\`\`\`${motivo}\`\`\`` }
+            );
+
+        const botaoDesabilitado = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('func_negada').setLabel('A funcional foi negada').setStyle(ButtonStyle.Danger).setDisabled(true)
+        );
+
+        await interaction.update({ embeds: [embedRecusado], components: [botaoDesabilitado] }).catch(() => null);
+
+        const canalLogs = interaction.guild.channels.cache.get(CONFIG.CANAL_LOGS);
+        if (canalLogs) {
+            const logEmbed = new EmbedBuilder()
+                .setTitle("🔴 Log - Funcional Recusada")
+                .setColor("#da373c")
+                .addFields(
+                    { name: "Membro:", value: `<@${alvoId}>` },
+                    { name: "Recusado Por:", value: `${interaction.user}` },
+                    { name: "Motivo:", value: `\`\`\`${motivo}\`\`\`` },
+                    { name: "Data/Hora (São Paulo):", value: `\`${getSPTimestamp()}\`` }
+                );
+            await canalLogs.send({ embeds: [logEmbed] }).catch(() => null);
+        }
     }
 });
 
